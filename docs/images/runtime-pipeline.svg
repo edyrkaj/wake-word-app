@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 280" role="img" aria-labelledby="t2 d2">
+  <title id="t2">Runtime audio and inference pipeline</title>
+  <desc id="d2">Flow from microphone through worklet, mel, ONNX, to UI and speech recognition.</desc>
+  <defs>
+    <style>
+      .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.5; rx: 10; }
+      .lbl { font-family: system-ui,-apple-system,sans-serif; font-size: 12px; fill: #0f172a; font-weight: 600; }
+      .subl { font-family: system-ui,-apple-system,sans-serif; font-size: 10px; fill: #64748b; }
+      .arr { stroke: #475569; stroke-width: 1.8; fill: none; marker-end: url(#m); }
+    </style>
+    <marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="720" height="280" fill="#f8fafc"/>
+  <text x="360" y="28" text-anchor="middle" class="lbl" font-size="14">In-browser runtime pipeline</text>
+  <!-- Row 1 -->
+  <rect class="box" x="24" y="52" width="120" height="64"/>
+  <text x="84" y="78" text-anchor="middle" class="lbl">Microphone</text>
+  <text x="84" y="98" text-anchor="middle" class="subl">getUserMedia</text>
+  <path class="arr" d="M148 84 H168"/>
+  <rect class="box" x="168" y="52" width="132" height="64"/>
+  <text x="234" y="78" text-anchor="middle" class="lbl">AudioContext</text>
+  <text x="234" y="98" text-anchor="middle" class="subl">16 kHz</text>
+  <path class="arr" d="M304 84 H324"/>
+  <rect class="box" x="324" y="52" width="140" height="64"/>
+  <text x="394" y="78" text-anchor="middle" class="lbl">AudioWorklet</text>
+  <text x="394" y="98" text-anchor="middle" class="subl">public/processor.js</text>
+  <path class="arr" d="M468 84 H488"/>
+  <rect class="box" x="488" y="52" width="208" height="64"/>
+  <text x="592" y="78" text-anchor="middle" class="lbl">Main thread (React)</text>
+  <text x="592" y="98" text-anchor="middle" class="subl">~1 s window every ~250 ms</text>
+  <!-- Down -->
+  <path class="arr" d="M592 118 V148"/>
+  <rect class="box" x="256" y="148" width="120" height="56"/>
+  <text x="316" y="174" text-anchor="middle" class="lbl">mel.js</text>
+  <text x="316" y="192" text-anchor="middle" class="subl">log-mel tensor</text>
+  <path class="arr" d="M380 176 H400"/>
+  <rect class="box" x="400" y="148" width="160" height="56"/>
+  <text x="480" y="174" text-anchor="middle" class="lbl">ONNX Runtime Web</text>
+  <text x="480" y="192" text-anchor="middle" class="subl">WASM · /model_tiny.onnx</text>
+  <path class="arr" d="M564 176 H584"/>
+  <rect class="box" x="584" y="148" width="112" height="56"/>
+  <text x="640" y="174" text-anchor="middle" class="lbl">Wake score</text>
+  <text x="640" y="192" text-anchor="middle" class="subl">threshold</text>
+  <!-- Branch -->
+  <path class="arr" d="M640 206 V232 H360"/>
+  <path class="arr" d="M360 232 V252"/>
+  <rect class="box" x="248" y="232" width="224" height="40"/>
+  <text x="360" y="256" text-anchor="middle" class="lbl">If triggered ’ Web Speech API (transcript)</text>
+</svg>

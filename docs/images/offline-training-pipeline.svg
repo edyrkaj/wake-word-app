@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200" role="img" aria-labelledby="t3 d3">
+  <title id="t3">Offline training and export pipeline</title>
+  <desc id="d3">Python dataset, training, ONNX export, copy to public folder.</desc>
+  <defs>
+    <style>
+      .box { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.5; rx: 10; }
+      .box2 { fill: #ecfeff; stroke: #0891b2; stroke-width: 1.5; rx: 10; }
+      .box3 { fill: #f0fdf4; stroke: #16a34a; stroke-width: 1.5; rx: 10; }
+      .lbl { font-family: system-ui,-apple-system,sans-serif; font-size: 12px; fill: #0f172a; font-weight: 600; }
+      .subl { font-family: system-ui,-apple-system,sans-serif; font-size: 10px; fill: #64748b; }
+      .arr { stroke: #475569; stroke-width: 1.8; fill: none; marker-end: url(#m2); }
+    </style>
+    <marker id="m2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="720" height="200" fill="#fafaf9"/>
+  <text x="360" y="28" text-anchor="middle" class="lbl" font-size="14">Offline: model_gen ’ ONNX ’ web app</text>
+  <rect class="box" x="32" y="56" width="150" height="72"/>
+  <text x="107" y="86" text-anchor="middle" class="lbl">Record</text>
+  <text x="107" y="106" text-anchor="middle" class="subl">record_dataset.py</text>
+  <path class="arr" d="M186 92 H206"/>
+  <rect class="box" x="206" y="56" width="150" height="72"/>
+  <text x="281" y="86" text-anchor="middle" class="lbl">Train</text>
+  <text x="281" y="106" text-anchor="middle" class="subl">train_model.py</text>
+  <path class="arr" d="M360 92 H380"/>
+  <rect class="box2" x="380" y="56" width="150" height="72"/>
+  <text x="455" y="86" text-anchor="middle" class="lbl">Export</text>
+  <text x="455" y="106" text-anchor="middle" class="subl">export_model.py</text>
+  <path class="arr" d="M534 92 H554"/>
+  <rect class="box3" x="554" y="56" width="150" height="72"/>
+  <text x="629" y="86" text-anchor="middle" class="lbl">public/</text>
+  <text x="629" y="106" text-anchor="middle" class="subl">model_tiny.onnx</text>
+  <text x="360" y="168" text-anchor="middle" class="subl">Keep mel / frame params in sync with src/mel.js</text>
+</svg>
