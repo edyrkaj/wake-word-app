@@ -29,8 +29,8 @@ N_FFT = 512
 HOP_LENGTH = 160
 WINDOW_SAMPLES = SAMPLE_RATE
 
-# Folder name in dataset/ that maps to class 1. Everything else is class 0.
-POSITIVE_LABEL = "hey_boss"
+# Default folder name under dataset/ for class 1; override with --positive-label.
+DEFAULT_POSITIVE_LABEL = "hey_boss"
 
 
 class WakeWordModel(nn.Module):
@@ -111,6 +111,8 @@ class WakeWordDataset(Dataset):
             n_fft=N_FFT,
             hop_length=HOP_LENGTH,
             n_mels=N_MELS,
+            mel_scale="htk",
+            norm=None,
         )
 
     def __len__(self):
@@ -123,7 +125,7 @@ class WakeWordDataset(Dataset):
         return mel, label
 
 
-def collect_files():
+def collect_files(positive_label):
     if not os.path.isdir(DATASET_DIR):
         raise FileNotFoundError(f"Dataset folder not found: {DATASET_DIR}")
     items = []
@@ -131,14 +133,25 @@ def collect_files():
         folder = os.path.join(DATASET_DIR, entry)
         if not os.path.isdir(folder):
             continue
-        label = 1 if entry == POSITIVE_LABEL else 0
+        label = 1 if entry == positive_label else 0
         for wav_path in sorted(glob.glob(os.path.join(folder, "*.wav"))):
             items.append((wav_path, label))
     return items
 
 
-def train(epochs, batch_size, lr, val_split, seed):
-    items = collect_files()
+def class_weights_tensor(positives, negatives, balance_weights, device):
+    """Inverse-frequency weights so rare positives get higher loss when balance_weights."""
+    if not balance_weights:
+        return None
+    n = positives + negatives
+    # CrossEntropyLoss weight[i] = n / (num_classes * count_i)
+    w0 = n / (2.0 * max(negatives, 1))
+    w1 = n / (2.0 * max(positives, 1))
+    return torch.tensor([w0, w1], dtype=torch.float32, device=device)
+
+
+def train(epochs, batch_size, lr, val_split, seed, positive_label, balance_weights):
+    items = collect_files(positive_label)
     if not items:
         raise RuntimeError(f"No .wav files found under {DATASET_DIR}")
 
@@ -147,7 +160,7 @@ def train(epochs, batch_size, lr, val_split, seed):
     print(f"Dataset: {len(items)} clips ({positives} positive, {negatives} negative)")
     if positives == 0 or negatives == 0:
         raise RuntimeError(
-            f"Need both positive ({POSITIVE_LABEL}/) and negative (any other folder) clips."
+            f"Need both positive ({positive_label}/) and negative (any other folder) clips."
         )
 
     random.seed(seed)
@@ -162,7 +175,11 @@ def train(epochs, batch_size, lr, val_split, seed):
 
     model = WakeWordModel()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.CrossEntropyLoss()
+    device = next(model.parameters()).device
+    cw = class_weights_tensor(positives, negatives, balance_weights, device)
+    if cw is not None:
+        print(f"CrossEntropy class weights (neg, pos): {cw.tolist()}")
+    criterion = nn.CrossEntropyLoss(weight=cw)
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -187,6 +204,27 @@ def train(epochs, batch_size, lr, val_split, seed):
         print(f"Epoch {epoch:3d} | train_loss={train_loss:.4f} | val_acc={val_acc:.3f}")
 
     return model
+
+
+def report_positive_wake_scores(model, items):
+    """Mean/min/max softmax(class=1) on positive training files — compare to browser threshold."""
+    pos_paths = [p for p, lab in items if lab == 1]
+    if not pos_paths:
+        print("No positive clips to score.")
+        return
+    pos_items = [(p, 1) for p in pos_paths]
+    loader = DataLoader(WakeWordDataset(pos_items), batch_size=16, shuffle=False)
+    model.eval()
+    probs = []
+    with torch.no_grad():
+        for mel, _ in loader:
+            p1 = model(mel)[:, 1].cpu().numpy()
+            probs.append(p1)
+    x = np.concatenate(probs)
+    print(
+        f"Wake softmax on {len(x)} positive clips — min={x.min():.3f} "
+        f"mean={x.mean():.3f} max={x.max():.3f} (target >0.5 in browser after quant)"
+    )
 
 
 def export_onnx(model):
@@ -214,9 +252,28 @@ def main():
     parser.add_argument("--val-split", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-export", action="store_true", help="Skip ONNX export")
+    parser.add_argument(
+        "--positive-label",
+        default=DEFAULT_POSITIVE_LABEL,
+        help="dataset/<name>/ folder treated as wake word (class 1). Must match record_dataset --label.",
+    )
+    parser.add_argument(
+        "--no-balance-weights",
+        action="store_true",
+        help="Disable inverse-frequency class weights (use plain CE).",
+    )
     args = parser.parse_args()
 
-    model = train(args.epochs, args.batch_size, args.lr, args.val_split, args.seed)
+    model = train(
+        args.epochs,
+        args.batch_size,
+        args.lr,
+        args.val_split,
+        args.seed,
+        args.positive_label,
+        balance_weights=not args.no_balance_weights,
+    )
+    report_positive_wake_scores(model, collect_files(args.positive_label))
     torch.save(model.state_dict(), WEIGHTS_PATH)
     print(f"Saved weights: {WEIGHTS_PATH}")
     if not args.no_export:

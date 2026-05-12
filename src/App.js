@@ -3,6 +3,18 @@ import * as ort from 'onnxruntime-web/wasm';
 import { computeLogMel, N_MELS, N_FRAMES } from './mel';
 
 const WAKE_WORD_THRESHOLD = 0.9;
+// UX copy; detection follows your trained ONNX. Dataset folder e.g. `hey_yeli` (see record_dataset / train_model --positive-label).
+const WAKE_WORD_PHRASE = 'hey Yeli';
+
+const modelUrl = () =>
+  process.env.NODE_ENV === 'development'
+    ? `/model_tiny.onnx?nocache=${Date.now()}`
+    : '/model_tiny.onnx';
+
+const processorWorkletUrl = () =>
+  process.env.NODE_ENV === 'development'
+    ? `/processor.js?v=${Date.now()}`
+    : '/processor.js';
 
 const WakeWordDetector = () => {
   const [isListening, setIsListening] = useState(false);
@@ -40,7 +52,7 @@ const WakeWordDetector = () => {
     const initModel = async () => {
       try {
         addLog('Loading ONNX model...');
-        sessionRef.current = await ort.InferenceSession.create('/model_tiny.onnx', {
+        sessionRef.current = await ort.InferenceSession.create(modelUrl(), {
           executionProviders: ['wasm'], // Use WASM for best compatibility
         });
         setModelReady(true);
@@ -66,7 +78,7 @@ const WakeWordDetector = () => {
       const source = audioCtxRef.current.createMediaStreamSource(stream);
       sourceNodeRef.current = source;
 
-      await audioCtxRef.current.audioWorklet.addModule('/processor.js');
+      await audioCtxRef.current.audioWorklet.addModule(processorWorkletUrl());
       const processorNode = new AudioWorkletNode(audioCtxRef.current, 'audio-processor');
       processorNodeRef.current = processorNode;
 
@@ -77,7 +89,7 @@ const WakeWordDetector = () => {
 
       source.connect(processorNode);
       setIsListening(true);
-      addLog(`Microphone started. Waiting for "hey boss" score > ${WAKE_WORD_THRESHOLD}.`);
+      addLog(`Microphone started. Waiting for "${WAKE_WORD_PHRASE}" score > ${WAKE_WORD_THRESHOLD}.`);
     } catch (error) {
       addLog(`Microphone failed: ${error.message}`);
       console.error('Microphone failed', error);
@@ -252,7 +264,7 @@ const WakeWordDetector = () => {
         <p>Model: {modelReady ? 'ready' : 'loading'}</p>
         <p>Wake word: {wakeWordDetected ? 'detected, transcribing' : 'waiting'}</p>
         <p>Latest score: {lastScore === null ? '-' : lastScore.toFixed(4)}</p>
-        <p>Transcript: {wakeWordDetected ? (transcript || '-') : 'locked until "hey boss"'}</p>
+        <p>Transcript: {wakeWordDetected ? (transcript || '-') : `locked until ${WAKE_WORD_PHRASE}`}</p>
       </div>
       <pre style={{
         background: '#111',

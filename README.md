@@ -20,6 +20,8 @@ Browser demo that runs a **small ONNX wake-word model** with [ONNX Runtime Web](
 - [Scripts](#scripts)
 - [Project layout](#project-layout)
 - [Training and export (`model_gen`)](#training-and-export-model_gen)
+- [Makefile shortcuts](#makefile-shortcuts)
+- [Wake word training tips](#wake-word-training-tips)
 - [Tuning](#tuning)
 - [Browser notes](#browser-notes)
 - [Troubleshooting](#troubleshooting)
@@ -183,6 +185,7 @@ onnx-tiny-model/
 │   ├── export_model.py
 │   ├── record_dataset.py
 │   └── requirements.txt
+├── Makefile              # shortcuts for Python train / record / export
 ├── package.json
 └── README.md
 ```
@@ -200,17 +203,84 @@ Python utilities live under **`model_gen/`**. Typical flow:
    pip install -r requirements.txt
    ```
 
-2. Record data, train, and export per your scripts (`record_dataset.py`, `train_model.py`, `export_model.py`). Generated artifacts such as `model.onnx` / `model_tiny.onnx` may be listed in `.gitignore`.
+   Or from the repo root: `make py-install` (see [Makefile shortcuts](#makefile-shortcuts)).
 
-3. Copy the exported ONNX the web app expects into **`public/`**.
+2. Record data, train, and export using `record_dataset.py`, `train_model.py`, and optionally `export_model.py`. Training writes **`public/model_tiny.onnx`** when export is enabled (no manual copy needed unless you use a custom path). Generated artifacts such as `model.onnx` may be listed in `.gitignore`.
 
-Keep **sample rate (16 kHz)**, **mel dimensions**, and **frame count** consistent between `model_gen` training and `src/mel.js` exports (`N_MELS`, `N_FRAMES`, etc.).
+3. If you export elsewhere, copy the ONNX the web app expects into **`public/`**.
+
+Keep **sample rate (16 kHz)**, **mel dimensions**, and **frame count** consistent between `model_gen` training and `src/mel.js` (`N_MELS`, `N_FRAMES`, etc.). Training uses `torchaudio` with **`mel_scale="htk"`** and **`norm=None`** to match `src/mel.js`.
+
+### Makefile shortcuts
+
+From the repository root, `make help` lists targets. Common commands:
+
+| Make target | Purpose |
+| ----------- | ------- |
+| `make help` | List all targets (record, train, clean, etc.) |
+| `make py-install` | `pip install -r model_gen/requirements.txt` |
+| `make record` | `record_dataset.py` — pass `RECORD_ARGS='...'` |
+| `make train` | `train_model.py` — pass `TRAIN_ARGS='...'` |
+| `make train-weights` | Train only; skips ONNX export (`--no-export`) |
+| `make export-scaffold` | Random-init `export_model.py` (pipeline smoke test) |
+
+Override the interpreter if you use a venv: `make train PY=.venv/bin/python`.
+
+Examples:
+
+```bash
+make record RECORD_ARGS='--label my_wake_word --count 20'
+make train TRAIN_ARGS='--positive-label my_wake_word --epochs 50'
+```
+
+### Wake word training tips
+
+The model outputs a **softmax probability** for the wake class (index `1`); the UI compares it to `WAKE_WORD_THRESHOLD` in `src/App.js`. To get **stable scores above ~0.5** on real speech (before lowering the threshold too far), treat **data**, **labeling**, and **training** together:
+
+**1. Match the positive folder name to your phrase**
+
+Only clips under **`dataset/<positive_label>/`** are labeled wake word. That name must match:
+
+- The `--label` you pass to `record_dataset.py`, and  
+- The `--positive-label` you pass to `train_model.py` (default is `hey_boss`).
+
+Example for a phrase you save as `hey_yeli` on disk (`dataset/hey_yeli/`):
+
+```bash
+make record RECORD_ARGS='--label hey_yeli --count 30'
+make train TRAIN_ARGS='--positive-label hey_yeli --epochs 50'
+```
+
+Keep `WAKE_WORD_PHRASE` in `src/App.js` aligned with what you actually recorded (UI copy only; the model cares about folder names and audio).
+
+**2. Put the phrase in the middle of each clip**
+
+Training uses the **center 1 second** of each WAV (`16000` samples). With the default **2 s** recorder, place the wake phrase near the **middle** of the clip so it falls inside that window. Clips where the phrase sits only at the very start or end often train as negatives.
+
+**3. Balance and difficulty of negatives**
+
+| Practice | Why it helps |
+| -------- | ------------ |
+| **Roughly 2–3× (or more) negatives vs positives** | Room tone, typing, TV, traffic, other people talking *without* the phrase |
+| **30–80+ positives** across rooms, distances, and volume | Avoids a model that only works on one mic or one room |
+| **Hard negatives** | Similar rhythm or sounds (almost the wake phrase) sharpen the decision boundary |
+
+**4. Training hyperparameters**
+
+- **`--epochs 50–80`** if loss is still improving at the default `30`.
+- **`--val-split 0.15`** on small datasets so more clips train.
+- **`--lr 5e-4`** if optimization looks unstable; otherwise **`1e-3`** is a good default.
+- **Class weights** (on by default): inverse-frequency weighting in `CrossEntropyLoss` so a large negative set does not drown the positive class. Use **`--no-balance-weights`** only if you want the previous unweighted loss.
+
+**5. Read the post-training score line**
+
+After training, the script prints **min / mean / max** wake softmax on **all positive clips** (FP32 model, before quantization). Use it as a sanity check: if the mean is already low here, the browser (quantized ONNX + live mic) will usually be similar or lower—invest in more or better data and epochs before chasing threshold tweaks alone. Quantization can shave a little from raw scores; if FP32 positives are strong but the browser lags, compare mic conditions to your training recordings.
 
 ---
 
 ## Tuning
 
-- **Detection threshold**: `WAKE_WORD_THRESHOLD` in `src/App.js` (default `0.9`). Lower values increase sensitivity and false accepts.
+- **Detection threshold**: `WAKE_WORD_THRESHOLD` in `src/App.js`. Lower values increase sensitivity and false accepts; see the value set in that file for the current default.
 - **Execution provider**: currently **`wasm`** in `InferenceSession.create`. You can experiment with WebGL or other providers supported by your build of `onnxruntime-web`, at the cost of compatibility or bundle size.
 
 ---
@@ -227,6 +297,7 @@ Keep **sample rate (16 kHz)**, **mel dimensions**, and **frame count** consisten
 
 | Symptom | Things to check |
 | ------- | ---------------- |
+| Low wake scores in browser | Positive folder name matches `--positive-label`; phrase centered in clips; enough negatives; read post-training positive softmax line from `train_model.py`. |
 | Model fails to load | `public/model_tiny.onnx` exists; path in `App.js` matches; browser devtools **Network** tab for 404. |
 | No microphone | Permissions; HTTPS (not file://); no other tab locking the device. |
 | Scores look wrong | Training feature pipeline vs `mel.js` mismatch (rates, FFT, hop, mel count, frames). |
