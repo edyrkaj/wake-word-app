@@ -1,0 +1,6 @@
+sounddevice
+torch
+torchaudio
+onnx
+onnxruntime
+onnxscript
