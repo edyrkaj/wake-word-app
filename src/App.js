@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as ort from 'onnxruntime-web/wasm';
 import { computeLogMel, N_MELS, N_FRAMES } from './mel';
+import './App.css';
 
 const WAKE_WORD_THRESHOLD = 0.9;
 // UX copy; detection follows your trained ONNX. Dataset folder e.g. `hey_yeli` (see record_dataset / train_model --positive-label).
@@ -279,6 +280,7 @@ const WakeWordDetector = () => {
       }}>
         {logs.join('\n')}
       </pre>
+      <div className="footer">create from <a href="https://e-soft.al" target="_blank" rel="noopener noreferrer">e-soft.al</a></div>
     </div>
   );
 };

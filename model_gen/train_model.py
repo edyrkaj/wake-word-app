@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchaudio
+from torchaudio.transforms import FrequencyMasking, TimeMasking
 from torch.utils.data import DataLoader, Dataset
 
 from onnxruntime.quantization import QuantType, quantize_dynamic  # pyright: ignore[reportMissingImports]
@@ -104,8 +105,11 @@ def wav_to_mel(wav, mel_transform):
 
 
 class WakeWordDataset(Dataset):
-    def __init__(self, items):
+    """Mel + label. Training-only augmentations reduce reliance on volume and pitch contour."""
+
+    def __init__(self, items, augment=False):
         self.items = items
+        self.augment = augment
         self.mel = torchaudio.transforms.MelSpectrogram(
             sample_rate=SAMPLE_RATE,
             n_fft=N_FFT,
@@ -114,14 +118,35 @@ class WakeWordDataset(Dataset):
             mel_scale="htk",
             norm=None,
         )
+        if augment:
+            self.freq_mask = FrequencyMasking(freq_mask_param=10)
+            self.time_mask = TimeMasking(time_mask_param=18)
 
     def __len__(self):
         return len(self.items)
 
+    def _augment_waveform(self, wav):
+        wav = wav * random.uniform(0.45, 1.15)
+        if random.random() < 0.4:
+            n_steps = random.uniform(-3.0, 3.0)
+            wav = torchaudio.functional.pitch_shift(wav, SAMPLE_RATE, n_steps)
+        return wav.clamp(-1.0, 1.0)
+
+    def _augment_mel(self, mel):
+        mel = self.freq_mask(mel)
+        mel = self.freq_mask(mel)
+        mel = self.time_mask(mel)
+        mel = self.time_mask(mel)
+        return mel
+
     def __getitem__(self, idx):
         path, label = self.items[idx]
         wav = load_audio_to_window(path)
+        if self.augment:
+            wav = self._augment_waveform(wav)
         mel = wav_to_mel(wav, self.mel)
+        if self.augment:
+            mel = self._augment_mel(mel)
         return mel, label
 
 
@@ -150,7 +175,7 @@ def class_weights_tensor(positives, negatives, balance_weights, device):
     return torch.tensor([w0, w1], dtype=torch.float32, device=device)
 
 
-def train(epochs, batch_size, lr, val_split, seed, positive_label, balance_weights):
+def train(epochs, batch_size, lr, val_split, seed, positive_label, balance_weights, augment_training):
     items = collect_files(positive_label)
     if not items:
         raise RuntimeError(f"No .wav files found under {DATASET_DIR}")
@@ -158,6 +183,13 @@ def train(epochs, batch_size, lr, val_split, seed, positive_label, balance_weigh
     positives = sum(1 for _, l in items if l == 1)
     negatives = len(items) - positives
     print(f"Dataset: {len(items)} clips ({positives} positive, {negatives} negative)")
+    if augment_training:
+        print(
+            "Training augmentations: random gain, pitch shift (40% of clips), "
+            "SpecAugment (freq + time masks) — reduces reliance on volume / intonation alone."
+        )
+    else:
+        print("Training augmentations: off (--no-augment).")
     if positives == 0 or negatives == 0:
         raise RuntimeError(
             f"Need both positive ({positive_label}/) and negative (any other folder) clips."
@@ -170,8 +202,12 @@ def train(epochs, batch_size, lr, val_split, seed, positive_label, balance_weigh
     val_items = items[:val_count]
     train_items = items[val_count:]
 
-    train_loader = DataLoader(WakeWordDataset(train_items), batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(WakeWordDataset(val_items), batch_size=batch_size)
+    train_loader = DataLoader(
+        WakeWordDataset(train_items, augment=augment_training),
+        batch_size=batch_size,
+        shuffle=True,
+    )
+    val_loader = DataLoader(WakeWordDataset(val_items, augment=False), batch_size=batch_size)
 
     model = WakeWordModel()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -262,6 +298,11 @@ def main():
         action="store_true",
         help="Disable inverse-frequency class weights (use plain CE).",
     )
+    parser.add_argument(
+        "--no-augment",
+        action="store_true",
+        help="Disable training augmentations (gain, pitch shift, SpecAugment).",
+    )
     args = parser.parse_args()
 
     model = train(
@@ -272,6 +313,7 @@ def main():
         args.seed,
         args.positive_label,
         balance_weights=not args.no_balance_weights,
+        augment_training=not args.no_augment,
     )
     report_positive_wake_scores(model, collect_files(args.positive_label))
     torch.save(model.state_dict(), WEIGHTS_PATH)
